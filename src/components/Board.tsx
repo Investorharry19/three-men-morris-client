@@ -5,7 +5,7 @@ type Props = {
   board: (Player | null)[];
   onMove: (from: number, to: number) => void;
   currentTurn: Player;
-  playerSide: Player;
+  playerSide?: Player;
 };
 
 // ─── Board geometry ───────────────────────────────────────────────────────────
