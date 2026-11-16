@@ -1,73 +1,45 @@
-# React + TypeScript + Vite
+# Three Men's Morris
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Three Men's Morris is a two-player, real-time strategy game. The React client
+uses Socket.IO to communicate with the Node.js game server.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Install dependencies in both `client` and `server` with `npm ci`.
+2. Copy `client/.env.example` to `client/.env`.
+3. In separate terminals, run `npm run dev` from `server` and `npm run dev`
+   from `client`.
+4. Open the Vite URL (usually `http://localhost:5173`) in two browser windows
+   to play.
 
-## React Compiler
+## Deploy
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Deploy the client and server as separate services. The client is a static Vite
+site; the server must support persistent WebSocket connections.
 
-## Expanding the ESLint configuration
+### Client
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Set the service root to `client`.
+- Build command: `npm ci && npm run build`
+- Output directory: `dist`
+- Set `VITE_API_URL` to the public HTTPS URL of the server (for example,
+  `https://your-game-server.example.com`), then rebuild and redeploy.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Server
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- Set the service root to `server`.
+- Build command: `npm ci && npm run build`
+- Start command: `npm start`
+- Set `REMOTE_CLIENT_URL` to the deployed client origin, without a trailing
+  slash. Multiple client origins can be comma-separated.
+- The server listens on the platform-provided `PORT` and exposes `/health` for
+  health checks.
+- Interactive API documentation is available at `/api-docs`; the OpenAPI
+  document is at `/api-docs.json`. Socket.IO events are described in Swagger.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+`VITE_API_URL` is embedded into the client at build time. Changing it requires
+a new client build. The server reads `PORT` and `REMOTE_CLIENT_URL` from its
+environment; set them in the hosting provider rather than committing a `.env`
+file. The server keeps active matches in memory, so a server restart or sleep
+ends those matches; run a single always-on server instance for reliable live
+games.

@@ -1,10 +1,16 @@
-import { useRef, useState } from "react";
+import {
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type TouchEvent,
+} from "react";
 import type { Player } from "../types";
 
 type Props = {
   board: (Player | null)[];
   onMove: (from: number, to: number) => void;
-  currentTurn: Player;
+  currentTurn: Player | null;
   playerSide?: Player;
 };
 
@@ -23,7 +29,7 @@ const circleBottom = cy + R;
 const gateLeft = cx - 60; // node 8
 const gateRight = cx + 60; // node 9
 
-export const positions: { x: number; y: number }[] = [
+const positions: { x: number; y: number }[] = [
   { x: BX, y: BY }, // 0  top-left   (Blue home)
   { x: BX, y: cy }, // 1  mid-left   (Blue home)
   { x: BX, y: BY + BH }, // 2  bot-left   (Blue home)
@@ -78,7 +84,7 @@ export default function Board({
   const isFlipped = playerSide === "O";
   const flipTransform = isFlipped ? `rotate(180, 170, 130)` : undefined;
 
-  function getSVGCoords(e: React.MouseEvent | React.TouchEvent) {
+  function getSVGCoords(e: MouseEvent | TouchEvent) {
     const svg = svgRef.current!;
     const pt = svg.createSVGPoint();
     const src =
@@ -107,7 +113,7 @@ export default function Board({
     setSelected(null);
   }
 
-  function startDrag(e: React.MouseEvent | React.TouchEvent, i: number) {
+  function startDrag(e: MouseEvent | TouchEvent, i: number) {
     if (board[i] !== currentTurn) return;
     e.preventDefault();
     setSelected(i);
@@ -115,13 +121,13 @@ export default function Board({
     setGhostPos(getSVGCoords(e));
   }
 
-  function onDragMove(e: React.MouseEvent | React.TouchEvent) {
+  function onDragMove(e: MouseEvent | TouchEvent) {
     if (dragging === null) return;
     e.preventDefault();
     setGhostPos(getSVGCoords(e));
   }
 
-  function onDragEnd(e: React.MouseEvent | React.TouchEvent) {
+  function onDragEnd(e: MouseEvent | TouchEvent) {
     if (dragging === null) return;
     const coords = getSVGCoords(e);
     const moves = getValidMoves(dragging, board);
@@ -147,14 +153,14 @@ export default function Board({
   const dragColor =
     dragging !== null
       ? board[dragging] === "X"
-        ? "#3b82f6"
-        : "#ef4444"
+        ? "#277d78"
+        : "#e6664e"
       : "none";
   const dragStroke =
     dragging !== null
       ? board[dragging] === "X"
-        ? "#1d4ed8"
-        : "#b91c1c"
+        ? "#175b57"
+        : "#b84837"
       : "none";
 
   return (
@@ -167,6 +173,8 @@ export default function Board({
       onMouseUp={onDragEnd}
       onTouchMove={onDragMove}
       onTouchEnd={onDragEnd}
+      role="group"
+      aria-label="Three Men's Morris game board"
       style={{ touchAction: "none", overflow: "visible" }}
     >
       <g transform={flipTransform}>
@@ -178,8 +186,7 @@ export default function Board({
           y1={BY}
           x2={BX}
           y2={BY + BH}
-          stroke="#000"
-          strokeWidth="2"
+          className="board-line"
         />
         {/* Right vertical edge */}
         <line
@@ -187,8 +194,7 @@ export default function Board({
           y1={BY}
           x2={BX + BW}
           y2={BY + BH}
-          stroke="#000"
-          strokeWidth="2"
+          className="board-line"
         />
         {/* Center horizontal — full width */}
         <line
@@ -196,8 +202,7 @@ export default function Board({
           y1={cy}
           x2={BX + BW}
           y2={cy}
-          stroke="#000"
-          strokeWidth="2"
+          className="board-line"
         />
         {/* Center vertical — upper segment: top of board → circle top */}
         <line
@@ -205,8 +210,7 @@ export default function Board({
           y1={BY + 25}
           x2={cx}
           y2={circleTop + 60}
-          stroke="#000"
-          strokeWidth="2"
+          className="board-line"
         />
         {/* Center vertical — lower segment: circle bottom → bottom of board */}
         <line
@@ -214,8 +218,7 @@ export default function Board({
           y1={circleBottom - 60}
           x2={cx}
           y2={BY + BH - 30}
-          stroke="#000"
-          strokeWidth="2"
+          className="board-line"
         />
         {/* Circle */}
         <circle
@@ -223,8 +226,7 @@ export default function Board({
           cy={cy}
           r={R}
           fill="none"
-          stroke="#000"
-          strokeWidth="2"
+          className="board-line"
         />
 
         {/* ── Gate tick marks ──────────────────────────────────────── */}
@@ -233,7 +235,7 @@ export default function Board({
           y1={cy - 6}
           x2={gateLeft}
           y2={cy + 6}
-          stroke="#888"
+          stroke="#7a807b"
           strokeWidth="1.5"
         />
         <line
@@ -241,7 +243,7 @@ export default function Board({
           y1={cy - 6}
           x2={gateRight}
           y2={cy + 6}
-          stroke="#888"
+          stroke="#7a807b"
           strokeWidth="1.5"
         />
 
@@ -252,7 +254,7 @@ export default function Board({
             cx={positions[i].x}
             cy={positions[i].y}
             r={11}
-            fill="#22c55e"
+            fill="var(--teal)"
             opacity={0.25}
             style={{ pointerEvents: "none" }}
           />
@@ -263,25 +265,32 @@ export default function Board({
           const isGate = i === 8 || i === 9;
           const isCenter = i === 10;
           const isTarget = validTargets.includes(i);
-          const isOccupied = board[i] !== null;
-
           return (
             <circle
               key={`nd-${i}`}
               cx={p.x}
               cy={p.y}
               r={isTarget ? 7 : isCenter ? 6 : isGate ? 5 : 4}
+              className="node"
               fill={
                 isTarget
-                  ? "#22c55e"
-                  : (isGate || isCenter) && isOccupied
-                    ? "#f59e0b"
-                    : isGate || isCenter
-                      ? "#888"
-                      : "#555"
+                  ? "var(--teal)"
+                  : isGate || isCenter
+                    ? "#7a807b"
+                    : undefined
               }
+              opacity={isTarget ? 1 : isGate || isCenter ? 0.9 : 0.75}
               style={{ cursor: isTarget ? "pointer" : "default" }}
+              role={isTarget ? "button" : undefined}
+              tabIndex={isTarget ? 0 : -1}
+              aria-label={isTarget ? `Move to position ${i + 1}` : undefined}
               onClick={() => handleNodeClick(i)}
+              onKeyDown={(event: KeyboardEvent<SVGCircleElement>) => {
+                if (isTarget && (event.key === "Enter" || event.key === " ")) {
+                  event.preventDefault();
+                  handleNodeClick(i);
+                }
+              }}
             />
           );
         })}
@@ -293,18 +302,30 @@ export default function Board({
           const isSel = selected === i;
           const isDragging = dragging === i;
           const isMyTurn = board[i] === currentTurn;
+          const tokenClass = isBlue ? "token token-x" : "token token-o";
           return (
             <circle
               key={`pc-${i}`}
               cx={p.x}
               cy={p.y}
               r={16}
-              fill={isBlue ? "#3b82f6" : "#ef4444"}
-              stroke={isSel ? "#facc15" : isBlue ? "#1d4ed8" : "#b91c1c"}
+              className={`${tokenClass}${isSel ? " selected" : ""}`}
+              fill={isBlue ? "var(--teal)" : "var(--coral)"}
+              stroke={isSel ? "#f4c95d" : undefined}
               strokeWidth={isSel ? 3 : 2}
               opacity={isDragging ? 0.35 : 1}
               style={{ cursor: isMyTurn ? "grab" : "default" }}
+              role="button"
+              tabIndex={isMyTurn ? 0 : -1}
+              aria-label={`${board[i]} piece at position ${i + 1}${isSel ? ", selected" : ""}`}
+              aria-disabled={!isMyTurn}
               onClick={() => handlePieceClick(i)}
+              onKeyDown={(event: KeyboardEvent<SVGCircleElement>) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handlePieceClick(i);
+                }
+              }}
               onMouseDown={(e) => startDrag(e, i)}
               onTouchStart={(e) => startDrag(e, i)}
             />
@@ -317,7 +338,7 @@ export default function Board({
           y={cy + 4}
           textAnchor="end"
           fontSize="10"
-          fill={playerSide === "X" ? "#3b82f6" : "#9ca3af"}
+          fill={playerSide === "X" ? "var(--teal)" : "#6c736d"}
           fontWeight={playerSide === "X" ? "700" : "400"}
         >
           {isFlipped ? "▶ O" : "▶ X"}
@@ -327,7 +348,7 @@ export default function Board({
           y={cy + 4}
           textAnchor="start"
           fontSize="10"
-          fill={playerSide === "O" ? "#ef4444" : "#9ca3af"}
+          fill={playerSide === "O" ? "var(--coral)" : "#6c736d"}
           fontWeight={playerSide === "O" ? "700" : "400"}
         >
           {isFlipped ? "O ◀" : "X ◀"}
