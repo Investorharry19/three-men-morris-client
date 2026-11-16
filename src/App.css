@@ -338,11 +338,48 @@ button:disabled {
   font-size: 0.8rem;
 }
 
+.draw-controls {
+  display: grid;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(244, 241, 233, 0.2);
+}
+
+.draw-controls p {
+  margin: 0;
+  color: var(--paper);
+  font: 0.875rem/1.4 Arial, sans-serif;
+}
+
+.draw-action-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.draw-button {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  color: var(--paper);
+  border-color: rgba(244, 241, 233, 0.65);
+  font: 700 0.875rem Arial, sans-serif;
+}
+
+.draw-button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--paper);
+}
+
 .winner-banner {
   grid-column: 1 / -1;
   padding: 18px 38px;
   color: var(--paper);
   background: var(--coral);
+}
+
+.winner-banner.draw {
+  background: var(--teal);
 }
 
 .winner-banner span {
@@ -355,6 +392,12 @@ button:disabled {
   margin: 4px 0 0;
   font-size: 1.65rem;
   font-weight: 400;
+}
+
+.winner-banner p {
+  margin: 6px 0 0;
+  color: var(--paper);
+  font: 0.95rem/1.4 Arial, sans-serif;
 }
 
 .visually-hidden {
@@ -461,3 +504,26 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+.clock { font-variant-numeric: tabular-nums; }
+.clock.low { color: var(--coral); }
+
+.notice {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid #f4c95d;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.draw-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.banner-reason { margin: 0.25rem 0 1rem; opacity: 0.8; }

@@ -23,6 +23,9 @@ function App() {
         opponentJoined &&
         player &&
         game &&
+        game.phase === "moving" &&
+        !game.winner &&
+        !game.result &&
         player === game.currentTurn,
     );
 
@@ -32,6 +35,26 @@ function App() {
       gameId: game.id,
       move: { from, to },
     });
+  };
+
+  const offerDraw = () => {
+    if (
+      !game ||
+      !opponentJoined ||
+      game.phase !== "moving" ||
+      game.result ||
+      game.drawOffer
+    ) {
+      return;
+    }
+    socket.emit("offer_draw", { gameId: game.id });
+  };
+
+  const respondToDraw = (accept: boolean) => {
+    if (!game || !game.drawOffer || game.drawOffer === player || game.result) {
+      return;
+    }
+    socket.emit("respond_draw", { gameId: game.id, accept });
   };
 
   useEffect(() => {
@@ -219,13 +242,18 @@ function App() {
     );
   }
 
-  const turnMessage = game.winner
-    ? `${game.winner} takes the table`
-    : !opponentJoined
-      ? "Waiting for a rival"
-      : isMyTurn
-        ? "Your move"
-        : "Opponent's move";
+  const turnMessage =
+    game.result === "draw"
+      ? game.drawReason ?? "The match is a draw"
+      : game.winner
+        ? `${game.winner} takes the table`
+        : game.phase === "finished"
+          ? "Match complete"
+          : !opponentJoined
+            ? "Waiting for a rival"
+            : isMyTurn
+              ? "Your move"
+              : "Opponent's move";
 
   return (
     <div className="container">
@@ -277,7 +305,7 @@ function App() {
             <span className="status-dot" aria-hidden="true" />
             <div>
               <span className="info-label">
-                {game.winner ? "Winner" : "Match status"}
+                {game.phase === "finished" ? "Final result" : "Match status"}
               </span>
               <strong>{turnMessage}</strong>
             </div>
@@ -301,6 +329,44 @@ function App() {
               </strong>
             </div>
           </div>
+          {opponentJoined &&
+            game.phase === "moving" &&
+            !game.result &&
+            !game.winner && (
+              <div className="draw-controls">
+                {game.drawOffer === player ? (
+                  <p role="status">Draw offer sent. Waiting for a response.</p>
+                ) : game.drawOffer ? (
+                  <>
+                    <p>Your opponent offered a draw.</p>
+                    <div className="draw-action-group">
+                      <button
+                        className="draw-button"
+                        type="button"
+                        onClick={() => respondToDraw(true)}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        className="draw-button"
+                        type="button"
+                        onClick={() => respondToDraw(false)}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    className="draw-button"
+                    type="button"
+                    onClick={offerDraw}
+                  >
+                    Offer a draw
+                  </button>
+                )}
+              </div>
+            )}
           {message && (
             <p className="feedback-message" role="alert">
               {message}
@@ -308,10 +374,20 @@ function App() {
           )}
         </aside>
 
-        {game.winner && (
-          <section className="winner-banner" aria-live="polite">
+        {game.phase === "finished" && (
+          <section
+            className={`winner-banner${game.result === "draw" ? " draw" : ""}`}
+            aria-live="polite"
+          >
             <span>Match complete</span>
-            <h2>{game.winner} wins</h2>
+            <h2>
+              {game.result === "draw"
+                ? "Match drawn"
+                : `${game.winner ?? "A player"} wins`}
+            </h2>
+            {(game.drawReason || game.endReason) && (
+              <p>{game.drawReason ?? game.endReason}</p>
+            )}
           </section>
         )}
       </main>

@@ -1,16 +1,11 @@
-import {
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-  type TouchEvent,
-} from "react";
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { Player } from "../types";
+import { getValidMoves } from "../lib/rules";
 
 type Props = {
   board: (Player | null)[];
   onMove: (from: number, to: number) => void;
-  currentTurn: Player | null;
+  currentTurn: Player | null; // null when it's not your turn or the game is over
   playerSide?: Player;
 };
 
@@ -20,9 +15,12 @@ const BX = 50,
   BY = 30,
   BW = 240,
   BH = 180;
-const cx = BX + BW / 2; // 170 — horizontal center
-const cy = BY + BH / 2; // 120 — vertical center
+const cx = BX + BW / 2; // 170, horizontal center
+const cy = BY + BH / 2; // 120, vertical center
 const R = 62;
+
+const VIEW_W = 340;
+const VIEW_H = 240;
 
 const circleTop = cy - R;
 const circleBottom = cy + R;
@@ -43,25 +41,8 @@ const positions: { x: number; y: number }[] = [
   { x: cx, y: cy }, // 10 center of circle
 ];
 
-// Corners only connect along outer edges.
-// Circle nodes (6, 7) and center (10) are only reachable via gates (8, 9).
-const ADJACENCY: Record<number, number[]> = {
-  0: [1, 3],
-  1: [0, 2, 8],
-  2: [1, 5],
-  3: [0, 4],
-  4: [3, 5, 9],
-  5: [4, 2],
-  6: [7, 8, 9, 10],
-  7: [6, 8, 9, 10],
-  8: [1, 6, 7, 9, 10],
-  9: [4, 6, 7, 8, 10],
-  10: [6, 7, 8, 9],
-};
-
-function getValidMoves(from: number, board: (Player | null)[]): number[] {
-  return (ADJACENCY[from] ?? []).filter((to) => board[to] === null);
-}
+const DROP_RADIUS = 30; // how close a drop must be to a valid node
+const TAP_THRESHOLD = 6; // movement below this counts as a tap, not a drag
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -76,119 +57,148 @@ export default function Board({
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(
     null,
   );
+
   const svgRef = useRef<SVGSVGElement>(null);
+  const boardRef = useRef<SVGGElement>(null);
+  const movedRef = useRef(false);
+  const wasSelectedRef = useRef(false);
 
-  const validTargets = selected !== null ? getValidMoves(selected, board) : [];
+  // Ignore a stale selection (turn changed, game ended, piece moved away)
+  const activeSelected =
+    selected !== null && board[selected] === currentTurn ? selected : null;
+  const validTargets =
+    activeSelected !== null ? getValidMoves(activeSelected, board) : [];
 
-  // Player O sees the board rotated 180° so their pieces always face them
+  // Player O sees the board rotated 180° so their pieces are on their side.
   const isFlipped = playerSide === "O";
-  const flipTransform = isFlipped ? `rotate(180, 170, 130)` : undefined;
+  const flipTransform = isFlipped ? `rotate(180, ${cx}, ${cy})` : undefined;
 
-  function getSVGCoords(e: MouseEvent | TouchEvent) {
-    const svg = svgRef.current!;
-    const pt = svg.createSVGPoint();
-    const src =
-      "touches" in e
-        ? (e as React.TouchEvent).changedTouches[0]
-        : (e as React.MouseEvent);
-    pt.x = src.clientX;
-    pt.y = src.clientY;
-    const coords = pt.matrixTransform(svg.getScreenCTM()!.inverse());
-    if (isFlipped) {
-      coords.x = 340 - coords.x;
-      coords.y = 260 - coords.y;
-    }
-    return coords;
+  // Pointer position in the board group's own coordinate space. The group's
+  // screen matrix already includes the rotation, so no manual flipping.
+  function getBoardCoords(e: PointerEvent) {
+    const ctm = boardRef.current?.getScreenCTM();
+    if (!ctm) return null;
+    return new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
   }
 
-  function handlePieceClick(i: number) {
+  // ── Click / keyboard selection ──────────────────────────────────────────
+
+  function toggleSelect(i: number) {
     if (board[i] !== currentTurn) return;
-    setSelected(selected === i ? null : i);
+    setSelected((prev) => (prev === i ? null : i));
   }
 
   function handleNodeClick(i: number) {
-    if (selected === null) return;
+    if (activeSelected === null) return;
     if (!validTargets.includes(i)) return;
-    onMove(selected, i);
+    onMove(activeSelected, i);
     setSelected(null);
   }
 
-  function startDrag(e: MouseEvent | TouchEvent, i: number) {
+  // ── Drag and drop (pointer events: mouse, touch, pen) ───────────────────
+
+  function startDrag(e: PointerEvent, i: number) {
     if (board[i] !== currentTurn) return;
+    const coords = getBoardCoords(e);
+    if (!coords) return;
     e.preventDefault();
+
+    // Keep receiving move/up events even if the pointer leaves the SVG
+    svgRef.current?.setPointerCapture(e.pointerId);
+
+    movedRef.current = false;
+    wasSelectedRef.current = activeSelected === i;
     setSelected(i);
     setDragging(i);
-    setGhostPos(getSVGCoords(e));
+    setGhostPos({ x: coords.x, y: coords.y });
   }
 
-  function onDragMove(e: MouseEvent | TouchEvent) {
+  function onDragMove(e: PointerEvent) {
     if (dragging === null) return;
+    const coords = getBoardCoords(e);
+    if (!coords) return;
     e.preventDefault();
-    setGhostPos(getSVGCoords(e));
+
+    const origin = positions[dragging];
+    if (Math.hypot(coords.x - origin.x, coords.y - origin.y) > TAP_THRESHOLD) {
+      movedRef.current = true;
+    }
+    setGhostPos({ x: coords.x, y: coords.y });
   }
 
-  function onDragEnd(e: MouseEvent | TouchEvent) {
+  function endDrag(e: PointerEvent, cancelled = false) {
     if (dragging === null) return;
-    const coords = getSVGCoords(e);
-    const moves = getValidMoves(dragging, board);
 
+    const svg = svgRef.current;
+    if (svg?.hasPointerCapture(e.pointerId)) {
+      svg.releasePointerCapture(e.pointerId);
+    }
+
+    const from = dragging;
+    const coords = cancelled ? null : getBoardCoords(e);
+
+    setDragging(null);
+    setGhostPos(null);
+
+    if (!coords) {
+      setSelected(null);
+      return;
+    }
+
+    // A tap (no real movement) toggles selection, like a click
+    if (!movedRef.current) {
+      setSelected(wasSelectedRef.current ? null : from);
+      return;
+    }
+
+    // A real drag: drop on the closest valid node within range
     let best: number | null = null;
-    let bestDist = 30;
-    moves.forEach((t) => {
-      const dx = positions[t].x - coords.x;
-      const dy = positions[t].y - coords.y;
-      const d = Math.sqrt(dx * dx + dy * dy);
+    let bestDist = DROP_RADIUS;
+    for (const t of getValidMoves(from, board)) {
+      const d = Math.hypot(
+        positions[t].x - coords.x,
+        positions[t].y - coords.y,
+      );
       if (d < bestDist) {
         bestDist = d;
         best = t;
       }
-    });
+    }
 
-    if (best !== null) onMove(dragging, best);
-    setDragging(null);
+    if (best !== null) onMove(from, best);
     setSelected(null);
-    setGhostPos(null);
   }
 
-  const dragColor =
-    dragging !== null
-      ? board[dragging] === "X"
-        ? "#277d78"
-        : "#e6664e"
-      : "none";
-  const dragStroke =
-    dragging !== null
-      ? board[dragging] === "X"
-        ? "#175b57"
-        : "#b84837"
-      : "none";
+  const draggedPlayer = dragging !== null ? board[dragging] : null;
+  const dragColor = draggedPlayer === "X" ? "#277d78" : "#e6664e";
+  const dragStroke = draggedPlayer === "X" ? "#175b57" : "#b84837";
+
+  // Side labels stay upright, outside the rotated group
+  const leftSide: Player = isFlipped ? "O" : "X";
+  const rightSide: Player = isFlipped ? "X" : "O";
+  const sideColor = (side: Player) =>
+    playerSide === side
+      ? side === "X"
+        ? "var(--teal)"
+        : "var(--coral)"
+      : "#6c736d";
 
   return (
     <svg
       ref={svgRef}
-      width="340"
-      height="260"
-      viewBox="0 0 340 260"
-      onMouseMove={onDragMove}
-      onMouseUp={onDragEnd}
-      onTouchMove={onDragMove}
-      onTouchEnd={onDragEnd}
+      width={VIEW_W}
+      height={VIEW_H}
+      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+      onPointerMove={onDragMove}
+      onPointerUp={(e) => endDrag(e)}
+      onPointerCancel={(e) => endDrag(e, true)}
       role="group"
       aria-label="Three Men's Morris game board"
       style={{ touchAction: "none", overflow: "visible" }}
     >
-      <g transform={flipTransform}>
+      <g ref={boardRef} transform={flipTransform}>
         {/* ── Board lines ─────────────────────────────────────────── */}
-
-        {/* Left vertical edge */}
-        <line
-          x1={BX}
-          y1={BY}
-          x2={BX}
-          y2={BY + BH}
-          className="board-line"
-        />
-        {/* Right vertical edge */}
+        <line x1={BX} y1={BY} x2={BX} y2={BY + BH} className="board-line" />
         <line
           x1={BX + BW}
           y1={BY}
@@ -196,15 +206,7 @@ export default function Board({
           y2={BY + BH}
           className="board-line"
         />
-        {/* Center horizontal — full width */}
-        <line
-          x1={BX}
-          y1={cy}
-          x2={BX + BW}
-          y2={cy}
-          className="board-line"
-        />
-        {/* Center vertical — upper segment: top of board → circle top */}
+        <line x1={BX} y1={cy} x2={BX + BW} y2={cy} className="board-line" />
         <line
           x1={cx}
           y1={BY + 25}
@@ -212,7 +214,6 @@ export default function Board({
           y2={circleTop + 60}
           className="board-line"
         />
-        {/* Center vertical — lower segment: circle bottom → bottom of board */}
         <line
           x1={cx}
           y1={circleBottom - 60}
@@ -220,14 +221,7 @@ export default function Board({
           y2={BY + BH - 30}
           className="board-line"
         />
-        {/* Circle */}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={R}
-          fill="none"
-          className="board-line"
-        />
+        <circle cx={cx} cy={cy} r={R} fill="none" className="board-line" />
 
         {/* ── Gate tick marks ──────────────────────────────────────── */}
         <line
@@ -297,68 +291,46 @@ export default function Board({
 
         {/* ── Pieces ───────────────────────────────────────────────── */}
         {positions.map((p, i) => {
-          if (!board[i]) return null;
-          const isBlue = board[i] === "X";
-          const isSel = selected === i;
+          const owner = board[i];
+          if (!owner) return null;
+          const isBlue = owner === "X";
+          const isSel = activeSelected === i;
           const isDragging = dragging === i;
-          const isMyTurn = board[i] === currentTurn;
-          const tokenClass = isBlue ? "token token-x" : "token token-o";
+          const canMove = owner === currentTurn;
           return (
             <circle
               key={`pc-${i}`}
               cx={p.x}
               cy={p.y}
               r={16}
-              className={`${tokenClass}${isSel ? " selected" : ""}`}
+              className={`${isBlue ? "token token-x" : "token token-o"}${
+                isSel ? " selected" : ""
+              }`}
               fill={isBlue ? "var(--teal)" : "var(--coral)"}
               stroke={isSel ? "#f4c95d" : undefined}
               strokeWidth={isSel ? 3 : 2}
               opacity={isDragging ? 0.35 : 1}
-              style={{ cursor: isMyTurn ? "grab" : "default" }}
+              style={{ cursor: canMove ? "grab" : "default" }}
               role="button"
-              tabIndex={isMyTurn ? 0 : -1}
-              aria-label={`${board[i]} piece at position ${i + 1}${isSel ? ", selected" : ""}`}
-              aria-disabled={!isMyTurn}
-              onClick={() => handlePieceClick(i)}
+              tabIndex={canMove ? 0 : -1}
+              aria-label={`${owner} piece at position ${i + 1}${isSel ? ", selected" : ""}`}
+              aria-disabled={!canMove}
+              onPointerDown={(e) => startDrag(e, i)}
               onKeyDown={(event: KeyboardEvent<SVGCircleElement>) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  handlePieceClick(i);
+                  toggleSelect(i);
                 }
               }}
-              onMouseDown={(e) => startDrag(e, i)}
-              onTouchStart={(e) => startDrag(e, i)}
             />
           );
         })}
 
-        {/* ── Player side labels ───────────────────────────────────── */}
-        <text
-          x={BX - 8}
-          y={cy + 4}
-          textAnchor="end"
-          fontSize="10"
-          fill={playerSide === "X" ? "var(--teal)" : "#6c736d"}
-          fontWeight={playerSide === "X" ? "700" : "400"}
-        >
-          {isFlipped ? "▶ O" : "▶ X"}
-        </text>
-        <text
-          x={BX + BW + 8}
-          y={cy + 4}
-          textAnchor="start"
-          fontSize="10"
-          fill={playerSide === "O" ? "var(--coral)" : "#6c736d"}
-          fontWeight={playerSide === "O" ? "700" : "400"}
-        >
-          {isFlipped ? "O ◀" : "X ◀"}
-        </text>
-
         {/* ── Drag ghost ───────────────────────────────────────────── */}
         {ghostPos && dragging !== null && (
           <circle
-            cx={isFlipped ? 340 - ghostPos.x : ghostPos.x}
-            cy={isFlipped ? 260 - ghostPos.y : ghostPos.y}
+            cx={ghostPos.x}
+            cy={ghostPos.y}
             r={16}
             fill={dragColor}
             stroke={dragStroke}
@@ -368,6 +340,28 @@ export default function Board({
           />
         )}
       </g>
+
+      {/* ── Side labels (outside the rotation, always upright) ───────── */}
+      <text
+        x={BX - 8}
+        y={cy + 4}
+        textAnchor="end"
+        fontSize="10"
+        fill={sideColor(leftSide)}
+        fontWeight={playerSide === leftSide ? "700" : "400"}
+      >
+        {`▶ ${leftSide}`}
+      </text>
+      <text
+        x={BX + BW + 8}
+        y={cy + 4}
+        textAnchor="start"
+        fontSize="10"
+        fill={sideColor(rightSide)}
+        fontWeight={playerSide === rightSide ? "700" : "400"}
+      >
+        {`${rightSide} ◀`}
+      </text>
     </svg>
   );
 }
